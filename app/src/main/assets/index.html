@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0a">
+<title>RAZ'S Smoke Tracker</title>
+<style>
+:root{--bg:#0a0a0a;--card:#1a1a1a;--ink:#f2f2f2;--mute:#9a9a9a;--acc:#e01f26;--on:#fff;--less:#e6e6e6;--more:#ff5a5f;--line:#2d2d2d;color-scheme:dark;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-tap-highlight-color:transparent}
+main{max-width:480px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:24px;font-weight:800;letter-spacing:-.01em;margin:0 0 2px}
+#date{margin:0 0 14px}
+section{background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px;border:1px solid var(--line)}
+.num{font-variant-numeric:tabular-nums}
+.hero{font-size:44px;font-weight:700;line-height:1.05;letter-spacing:-.02em}
+.sub{color:var(--mute);font-size:14px;margin-top:4px}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:14px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--acc);transition:width .9s linear}
+.next{margin-top:10px;font-weight:600}
+.ready{color:var(--acc)}
+#add{width:100%;min-height:84px;border:0;border-radius:18px;background:var(--acc);color:var(--on);font:700 22px system-ui,sans-serif;margin-bottom:12px}
+#add:active{transform:scale(.98)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.cnt{font-size:34px;font-weight:700}
+.verdict{margin-top:8px;font-weight:600}
+.less{color:var(--less)}.more{color:var(--more)}
+input[type=range]{width:100%;accent-color:var(--acc);margin:12px 0 4px;height:32px}
+label.opt{display:flex;align-items:center;gap:10px;padding:8px 0;min-height:44px}
+label.opt input{width:22px;height:22px;accent-color:var(--acc)}
+.btn{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:10px;padding:10px 14px;font:600 15px system-ui,sans-serif;min-height:44px}
+ul{list-style:none;margin:8px 0 0;padding:0}
+li{display:flex;justify-content:space-between;padding:8px 0;border-top:1px solid var(--line)}
+li span:last-child{color:var(--mute)}
+.mut{color:var(--mute);font-size:14px}
+.warn{margin-top:10px;padding:10px 12px;border:1px solid var(--more);border-radius:10px;color:var(--more);font-size:14px}
+.warn .btn{margin-top:8px;color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+  <h1>RAZ'S Smoke Tracker</h1>
+  <div class="sub" id="date"></div>
+
+  <section>
+    <div class="sub">Last cigarette</div>
+    <div class="hero num" id="ago">–</div>
+    <div class="sub" id="at"></div>
+    <div class="bar"><i id="prog"></i></div>
+    <div class="next num" id="next"></div>
+  </section>
+
+  <button id="add" type="button">I just had one</button>
+
+  <section>
+    <div class="row"><div><div class="sub">Today so far</div><div class="cnt num" id="tc">0</div></div>
+    <div style="text-align:right"><div class="sub" id="ylabel">Yesterday by now</div><div class="cnt num" id="yc">0</div></div></div>
+    <div class="verdict" id="verdict"></div>
+    <div class="sub num" id="ytot"></div>
+  </section>
+
+  <section>
+    <div class="row"><strong>Time between cigarettes</strong><strong class="num" id="ival"></strong></div>
+    <input type="range" id="slider" min="10" max="120" step="5" aria-label="Minutes between cigarettes">
+    <div class="row mut"><span>10 min</span><span>120 min</span></div>
+    <label class="opt"><input type="checkbox" id="snd"> Sound alert when time is up</label>
+    <label class="opt"><input type="checkbox" id="wk"> Keep screen on (so the alert can sound)</label>
+    <button class="btn" id="test" type="button">Test sound</button>
+    <div class="warn" id="warn" hidden><div id="warntxt"></div><button class="btn" id="fix" type="button">Open settings</button></div>
+    <p class="mut" id="note" style="margin:10px 0 0">Alerts only sound while this app is open on screen.</p>
+  </section>
+
+  <section>
+    <div class="row"><strong>Today's log</strong><button class="btn" id="undo" type="button">Undo last</button></div>
+    <ul id="list"></ul>
+  </section>
+</main>
+
+<script>
+const K='smoketracker.v1';
+let S={log:[],interval:45,sound:true,wake:false,alertedFor:0};
+try{Object.assign(S,JSON.parse(localStorage.getItem(K)||'{}'))}catch(e){}
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}};
+const $=id=>document.getElementById(id);
+const sod=t=>{const d=new Date(t);d.setHours(0,0,0,0);return d.getTime()};
+const clock=t=>new Date(t).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+const p2=n=>String(n).padStart(2,'0');
+
+function dur(ms){const m=Math.floor(ms/60000),h=Math.floor(m/60);return h?h+'h '+p2(m%60)+'m':m+'m'}
+function cd(ms){const s=Math.ceil(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60);return (h?h+':'+p2(m):m)+':'+p2(s%60)}
+
+let ac;
+function audio(){try{if(!ac)ac=new(window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume()}catch(e){}return ac}
+function ring(){
+  try{const a=audio();for(let i=0;i<5;i++){const o=a.createOscillator(),g=a.createGain(),t=a.currentTime+i*.4;
+    o.frequency.value=i%2?880:660;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(.5,t+.03);g.gain.exponentialRampToValueAtTime(.0001,t+.33);
+    o.connect(g);g.connect(a.destination);o.start(t);o.stop(t+.35)}}catch(e){}
+  try{navigator.vibrate&&navigator.vibrate([300,150,300,150,300])}catch(e){}
+}
+
+let wl=null;
+async function wake(){try{
+  if(S.wake&&'wakeLock' in navigator&&!wl&&!document.hidden){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null})}
+  else if(!S.wake&&wl){await wl.release();wl=null}
+}catch(e){}}
+
+function render(){
+  const now=Date.now(),last=S.log.length?S.log[S.log.length-1]:0,t0=sod(now);
+  $('date').textContent=new Date(now).toLocaleDateString([],{weekday:'long',month:'long',day:'numeric'});
+  const today=S.log.filter(t=>t>=t0);
+  const ys=new Date(now);ys.setDate(ys.getDate()-1);const y0=sod(ys);
+  const yBy=S.log.filter(t=>t>=y0&&t<=ys.getTime()).length;
+  const yTot=S.log.filter(t=>t>=y0&&t<t0).length;
+
+  if(last){
+    const el=now-last,due=last+S.interval*60000;
+    $('ago').textContent=el<60000?'Just now':dur(el)+' ago';
+    $('at').textContent='at '+clock(last)+(last<t0?' (yesterday)':'');
+    $('prog').style.width=Math.min(100,el/(S.interval*60000)*100)+'%';
+    const n=$('next');
+    if(now<due){n.textContent='Next one in '+cd(due-now);n.className='next num'}
+    else{n.textContent='Time is up. You can have one now.';n.className='next ready'}
+  }else{
+    $('ago').textContent='None yet';$('at').textContent='Tap the button when you smoke.';
+    $('prog').style.width='0';$('next').textContent='';
+  }
+
+  $('tc').textContent=today.length;
+  $('ylabel').textContent='Yesterday by '+clock(ys);
+  $('yc').textContent=yBy;
+  const v=$('verdict'),d=today.length-yBy;
+  if(!yTot){v.textContent='No data from yesterday to compare yet.';v.className='verdict'}
+  else if(d<0){v.textContent='▼ '+(-d)+' fewer than yesterday by this time';v.className='verdict less'}
+  else if(d>0){v.textContent='▲ '+d+' more than yesterday by this time';v.className='verdict more'}
+  else{v.textContent='Same as yesterday by this time';v.className='verdict'}
+  $('ytot').textContent=yTot?'Yesterday total: '+yTot:'';
+
+  $('list').innerHTML=today.length?today.slice().reverse().map((t,i)=>{
+    const idx=today.length-i,prev=today[idx-2];
+    return '<li><span class="num">'+idx+'. '+clock(t)+'</span><span class="num">'+(prev?'+'+dur(t-prev):'first')+'</span></li>'}).join(''):'<li><span class="mut">Nothing logged today.</span></li>';
+}
+
+function syncNative(){
+  try{
+    if(!window.Native)return;
+    const last=S.log.length?S.log[S.log.length-1]:0,due=last+S.interval*60000;
+    if(S.sound&&last&&due>Date.now())Native.schedule(due);else Native.cancel();
+  }catch(e){}
+}
+function nativeStatus(){
+  if(!window.Native)return;
+  let st='ok';try{st=Native.status()}catch(e){}
+  $('warn').hidden=st==='ok';
+  if(st!=='ok')$('warntxt').textContent=st==='exact'?'Exact alarms are off for this app, so alerts may come late.':'Notifications are off for this app, so alerts cannot sound.';
+}
+
+function check(){
+  if(!S.log.length)return;
+  const last=S.log[S.log.length-1],due=last+S.interval*60000,now=Date.now();
+  if(now>=due&&S.alertedFor!==last){S.alertedFor=last;save();if(S.sound&&!window.Native&&now-due<300000)ring()}
+}
+
+$('add').onclick=()=>{
+  audio();S.log.push(Date.now());
+  S.log=S.log.filter(t=>t>Date.now()-60*864e5);
+  save();try{navigator.vibrate&&navigator.vibrate(40)}catch(e){}
+  render();syncNative();
+};
+$('undo').onclick=()=>{
+  if(S.log.length&&S.log[S.log.length-1]>=sod(Date.now())){S.log.pop();S.alertedFor=0;save();render();check();syncNative()}
+};
+$('slider').oninput=e=>{S.interval=+e.target.value;S.alertedFor=0;$('ival').textContent=S.interval+' min';save();render();syncNative()};
+$('snd').onchange=e=>{S.sound=e.target.checked;if(S.sound)audio();save();syncNative()};
+$('wk').onchange=e=>{S.wake=e.target.checked;save();wake()};
+$('test').onclick=()=>{if(window.Native){try{Native.test()}catch(e){}setTimeout(nativeStatus,600)}else{audio();ring()}};
+$('fix').onclick=()=>{try{Native.fix()}catch(e){}};
+document.addEventListener('pointerdown',()=>audio(),{once:true});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){wake();render();check();syncNative();nativeStatus()}});
+
+$('slider').value=S.interval;$('ival').textContent=S.interval+' min';
+$('snd').checked=S.sound;$('wk').checked=S.wake;
+render();check();wake();
+if(window.Native){
+  $('wk').parentElement.style.display='none';
+  $('note').textContent='Alerts sound even when the app is closed or your phone is locked.';
+  syncNative();nativeStatus();setInterval(nativeStatus,5000);
+}
+setInterval(()=>{render();check()},1000);
+</script>
+</body>
+</html>
